@@ -256,7 +256,11 @@ async function authFetch(url, options = {}) {
     return response;
 }
 
-const USER_ID = "me";
+function parseJwt(token) {
+    return JSON.parse(atob(token.split('.')[1]));
+}
+
+const USER_ID = parseJwt(token).sub;
 
 async function fetchQuote() {
 
@@ -305,25 +309,50 @@ async function fetchStats() {
 
 async function fetchGoal() {
 
-    const response = await authFetch(`/users/${USER_ID}/goal`);
+    try {
 
-    const goal = await response.json();
+        const response = await fetch(`/users/${USER_ID}/goal`, {
+            headers: {
+                "Authorization": `Bearer ${token}`
+            }
+        });
 
-    const activeGoal = document.getElementById("activeGoal");
+        const activeGoal =
+            document.getElementById("activeGoal");
 
-    if (!goal || goal.detail) {
-        activeGoal.innerHTML = "<p>No active goal.</p>";
-        return;
+        if (!response.ok) {
+
+            activeGoal.innerHTML =
+                "<p>No active goal.</p>";
+
+            return;
+        }
+
+        const goal = await response.json();
+
+        const distance =
+            goal.goaldistance ?? "-";
+
+        const duration =
+            goal.goalduration ?? "-";
+
+        activeGoal.innerHTML = `
+            <div class="goal-pill">
+                🎯 Distance: ${distance}
+                |
+                Duration: ${duration}
+            </div>
+        `;
+
+    } catch (err) {
+
+        console.error(err);
+
+        document.getElementById(
+            "activeGoal"
+        ).innerHTML = "<p>No active goal.</p>";
     }
-
-    activeGoal.innerHTML = `
-        <div class="goal-pill">
-            Distance: ${goal.goal_distance || '-'} |
-            Duration: ${goal.goal_duration || '-'}
-        </div>
-    `;
 }
-
 async function fetchLogs() {
 
     const response = await authFetch(`/users/${USER_ID}/logs`);
@@ -420,9 +449,14 @@ document.getElementById("goalForm")
 
     e.preventDefault();
 
-    const response = await authFetch(`/users/${USER_ID}/goal`, {
+    await fetch(`/users/${USER_ID}/goal`, {
+
         method: "POST",
+
+        headers: getAuthHeaders(),
+
         body: JSON.stringify({
+
             goalDistance:
                 document.getElementById("goalDistance").value || null,
 
@@ -431,11 +465,9 @@ document.getElementById("goalForm")
         })
     });
 
-    if (!response.ok) return;
-
     document.getElementById("goalForm").reset();
 
-    fetchGoal();
+    await refreshDashboard();
 });
 
 document.getElementById("logForm")
@@ -483,11 +515,18 @@ function logout() {
 
 async function refreshDashboard() {
 
-    await fetchStats();
+    try {
 
-    await fetchGoal();
+        await Promise.all([
+            fetchStats(),
+            fetchGoal(),
+            fetchLogs()
+        ]);
 
-    await fetchLogs();
+    } catch (err) {
+
+        console.error(err);
+    }
 }
 
 fetchQuote();
