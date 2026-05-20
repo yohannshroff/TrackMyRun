@@ -256,7 +256,11 @@ async function authFetch(url, options = {}) {
     return response;
 }
 
-const USER_ID = "me";
+function parseJwt(token) {
+    return JSON.parse(atob(token.split('.')[1]));
+}
+
+const USER_ID = parseJwt(token).sub;
 
 async function fetchQuote() {
 

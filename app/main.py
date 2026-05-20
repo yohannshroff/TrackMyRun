@@ -30,7 +30,23 @@ class LogPayload(BaseModel):
     place: str
     date: str
 
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends
 
+security = HTTPBearer()
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+    token = credentials.credentials
+
+    payload = verify_token(token)
+
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    return payload["sub"]
 def verify_token(token: str):
     try:
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -165,6 +181,94 @@ def get_logs(userid: str, current_user: str = Depends(get_current_user)):
 
     return logs
 
+@app.get("/users/{userid}/goal")
+def get_goal(userid: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT * FROM goals WHERE userid=%s",
+        (userid,)
+    )
+
+    goal = cursor.fetchone()
+
+    cursor.close()
+    conn.close()
+
+    if not goal:
+        raise HTTPException(status_code=404, detail="No active goal")
+
+    return goal
+
+
+@app.post("/users/{userid}/goal")
+async def set_goal(
+    userid: str,
+    request: Request
+):
+    body = await request.json()
+
+    goal_distance = body.get("goalDistance")
+    goal_duration = body.get("goalDuration")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT * FROM goals WHERE userid=%s",
+        (userid,)
+    )
+
+    existing_goal = cursor.fetchone()
+
+    if existing_goal:
+
+        cursor.execute(
+            """
+            UPDATE goals
+            SET goal_distance=%s,
+                goal_duration=%s,
+                status='active'
+            WHERE userid=%s
+            """,
+            (
+                goal_distance,
+                goal_duration,
+                userid
+            )
+        )
+
+    else:
+
+        cursor.execute(
+            """
+            INSERT INTO goals(
+                goalid,
+                userid,
+                goal_distance,
+                goal_duration,
+                status
+            )
+            VALUES(%s,%s,%s,%s,%s)
+            """,
+            (
+                str(uuid.uuid4()),
+                userid,
+                goal_distance,
+                goal_duration,
+                'active'
+            )
+        )
+
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+
+    return {
+        "message": "Goal saved successfully"
+    }
 
 def recalculate_stats(userid, conn):
     cursor = conn.cursor()
@@ -530,3 +634,70 @@ def set_goal(
     finally:
         cursor.close()
         conn.close()
+@app.get("/users/{userid}/goal")
+def get_goal(userid: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT * FROM goals
+    WHERE userid=%s
+    """, (userid,))
+
+    goal = cursor.fetchone()
+
+    cursor.close()
+    conn.close()
+
+    if not goal:
+        raise HTTPException(status_code=404, detail="No active goal")
+
+    return {
+        "goaldistance": goal["goal_distance"],
+        "goalduration": goal["goal_duration"],
+        "goalpace": goal["goal_pace"],
+        "status": goal["status"]
+    }
+from pydantic import BaseModel
+
+
+class GoalRequest(BaseModel):
+    goalDistance: float | None = None
+    goalDuration: float | None = None
+
+
+@app.post("/users/{userid}/goal")
+def set_goal(userid: str, goal: GoalRequest):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT INTO goals(
+        goalid,
+        userid,
+        goal_distance,
+        goal_duration,
+        status
+    )
+    VALUES(%s,%s,%s,%s,%s)
+
+    ON CONFLICT(userid)
+    DO UPDATE SET
+        goal_distance=EXCLUDED.goal_distance,
+        goal_duration=EXCLUDED.goal_duration,
+        status='active'
+    """, (
+        str(uuid.uuid4()),
+        userid,
+        goal.goalDistance,
+        goal.goalDuration,
+        "active"
+    ))
+
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+
+    return {"message": "Goal saved"}
