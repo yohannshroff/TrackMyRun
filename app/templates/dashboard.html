@@ -1,0 +1,499 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrackMyRun Dashboard</title>
+
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="dashboard">
+
+    <div class="topbar">
+        <h1 class="brand-title">TrackMyRun</h1>
+
+        <button class="logout-btn" onclick="logout()">
+            Logout
+        </button>
+    </div>
+
+    <div class="grid">
+
+        <div class="left-stack">
+
+            <div class="card quote-panel">
+                <h2>Motivational Quote</h2>
+                <p class="quote-text" id="quote"></p>
+            </div>
+
+            <div class="card">
+                <h2>Current Goal</h2>
+
+                <div id="activeGoal"></div>
+
+                <form id="goalForm">
+
+                    <div class="form-group">
+                        <label>Goal Distance</label>
+                        <input
+                            type="number"
+                            step="0.01"
+                            id="goalDistance"
+                            placeholder="Optional"
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label>Goal Duration (minutes)</label>
+                        <input
+                            type="number"
+                            step="0.01"
+                            id="goalDuration"
+                            placeholder="Optional"
+                        >
+                    </div>
+
+                    <button type="submit">
+                        Set Goal
+                    </button>
+
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Log Your Run</h2>
+
+            <form id="logForm">
+
+                <div class="form-group">
+                    <label>Distance</label>
+                    <input
+                        type="number"
+                        step="0.01"
+                        id="distance"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label>Duration (minutes)</label>
+                    <input
+                        type="number"
+                        step="0.01"
+                        id="duration"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label>Place</label>
+                    <input
+                        type="text"
+                        id="place"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label>Date</label>
+                    <input
+                        type="date"
+                        id="date"
+                        required
+                    >
+                </div>
+
+                <button type="submit">
+                    Save Workout
+                </button>
+
+            </form>
+
+            <div
+                id="messageBox"
+                class="message-box"
+                style="display:none;"
+            ></div>
+
+        </div>
+
+    </div>
+
+    <div class="card" style="margin-bottom: 30px;">
+        <h2>Lifetime Statistics</h2>
+
+        <div class="stats-grid">
+
+            <div class="stat-box">
+                <div class="stat-label">Total Runs</div>
+                <div class="stat-value" id="totalRuns">0</div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Total Distance</div>
+                <div class="stat-value" id="totalDistance">0</div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Total Duration</div>
+                <div class="stat-value" id="totalDuration">0</div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Average Pace</div>
+                <div class="stat-value" id="avgPace">0</div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Consistency</div>
+                <div class="stat-value" id="consistency">0%</div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Pace PR</div>
+                <div class="stat-value" id="maxPace">0</div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Longest Run</div>
+                <div class="stat-value" id="maxDistance">0</div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Longest Duration</div>
+                <div class="stat-value" id="maxDuration">0</div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Started Tracking</div>
+                <div class="stat-value" id="startDate">-</div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Latest Run</div>
+                <div class="stat-value" id="endDate">-</div>
+            </div>
+
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Workout History</h2>
+
+        <div class="table-wrapper">
+
+            <table>
+
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Place</th>
+                        <th>Distance</th>
+                        <th>Duration</th>
+                        <th>Pace</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+
+                <tbody id="logsTableBody">
+                </tbody>
+
+            </table>
+
+        </div>
+
+        <div
+            id="emptyState"
+            class="empty-state"
+            style="display:none;"
+        >
+            No runs logged yet.
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+
+const token = localStorage.getItem("token");
+
+if (!token) {
+    window.location.href = "/";
+    throw new Error("Missing authentication token");
+}
+
+function redirectToLogin() {
+    localStorage.removeItem("token");
+    window.location.href = "/";
+}
+
+function getAuthHeaders() {
+    return {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+    };
+}
+
+async function authFetch(url, options = {}) {
+    const response = await fetch(url, {
+        ...options,
+        headers: {
+            ...getAuthHeaders(),
+            ...(options.headers || {})
+        }
+    });
+
+    if (response.status === 401) {
+        redirectToLogin();
+        throw new Error("Authentication required");
+    }
+
+    return response;
+}
+
+const USER_ID = "me";
+
+async function fetchQuote() {
+
+    const response = await authFetch("/quotes/random");
+
+    const data = await response.json();
+
+    document.getElementById("quote").innerText = data.quote;
+}
+
+async function fetchStats() {
+
+    const response = await authFetch(`/users/${USER_ID}/stats`);
+
+    const stats = await response.json();
+
+    document.getElementById("totalRuns").innerText = stats.total_runs || 0;
+
+    document.getElementById("totalDistance").innerText =
+        (stats.total_distance || 0).toFixed(2);
+
+    document.getElementById("totalDuration").innerText =
+        (stats.total_duration || 0).toFixed(2);
+
+    document.getElementById("avgPace").innerText =
+        (stats.avg_pace || 0).toFixed(2);
+
+    document.getElementById("consistency").innerText =
+        `${stats.consistency || 0}%`;
+
+    document.getElementById("maxPace").innerText =
+        (stats.max_pace || 0).toFixed(2);
+
+    document.getElementById("maxDistance").innerText =
+        (stats.max_distance || 0).toFixed(2);
+
+    document.getElementById("maxDuration").innerText =
+        (stats.max_duration || 0).toFixed(2);
+
+    document.getElementById("startDate").innerText =
+        stats.start_date || "-";
+
+    document.getElementById("endDate").innerText =
+        stats.end_date || "-";
+}
+
+async function fetchGoal() {
+
+    const response = await authFetch(`/users/${USER_ID}/goal`);
+
+    const goal = await response.json();
+
+    const activeGoal = document.getElementById("activeGoal");
+
+    if (!goal || goal.detail) {
+        activeGoal.innerHTML = "<p>No active goal.</p>";
+        return;
+    }
+
+    activeGoal.innerHTML = `
+        <div class="goal-pill">
+            Distance: ${goal.goal_distance || '-'} |
+            Duration: ${goal.goal_duration || '-'}
+        </div>
+    `;
+}
+
+async function fetchLogs() {
+
+    const response = await authFetch(`/users/${USER_ID}/logs`);
+
+    const logs = await response.json();
+
+    const tableBody = document.getElementById("logsTableBody");
+
+    const emptyState = document.getElementById("emptyState");
+
+    tableBody.innerHTML = "";
+
+    if (logs.length === 0) {
+        emptyState.style.display = "block";
+        return;
+    }
+
+    emptyState.style.display = "none";
+
+    logs.forEach(log => {
+
+        const row = document.createElement("tr");
+
+        row.innerHTML = `
+            <td>${log.date}</td>
+            <td>${log.place}</td>
+            <td>${Number(log.distance).toFixed(2)}</td>
+            <td>${Number(log.duration).toFixed(2)}</td>
+            <td>${Number(log.pace).toFixed(2)}</td>
+            <td>
+                <button
+                    class="edit-btn"
+                    onclick="editLog('${log.logid}')"
+                >
+                    Edit
+                </button>
+
+                <button
+                    class="delete-btn"
+                    onclick="deleteLog('${log.logid}')"
+                >
+                    Delete
+                </button>
+            </td>
+        `;
+
+        tableBody.appendChild(row);
+    });
+}
+
+async function deleteLog(logId) {
+
+    const confirmed = confirm("Delete this run?");
+
+    if (!confirmed) return;
+
+    const response = await authFetch(`/users/${USER_ID}/logs/${logId}`, {
+        method: "DELETE"
+    });
+
+    if (!response.ok) return;
+
+    refreshDashboard();
+}
+
+async function editLog(logId) {
+
+    const distance = prompt("New distance:");
+    const duration = prompt("New duration:");
+    const place = prompt("New place:");
+    const date = prompt("New date (YYYY-MM-DD):");
+
+    if (!distance || !duration || !place || !date) {
+        return;
+    }
+
+    const response = await authFetch(`/users/${USER_ID}/logs/${logId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+            distance,
+            duration,
+            place,
+            date
+        })
+    });
+
+    if (!response.ok) return;
+
+    refreshDashboard();
+}
+
+document.getElementById("goalForm")
+.addEventListener("submit", async (e) => {
+
+    e.preventDefault();
+
+    const response = await authFetch(`/users/${USER_ID}/goal`, {
+        method: "POST",
+        body: JSON.stringify({
+            goalDistance:
+                document.getElementById("goalDistance").value || null,
+
+            goalDuration:
+                document.getElementById("goalDuration").value || null
+        })
+    });
+
+    if (!response.ok) return;
+
+    document.getElementById("goalForm").reset();
+
+    fetchGoal();
+});
+
+document.getElementById("logForm")
+.addEventListener("submit", async (e) => {
+
+    e.preventDefault();
+
+    const response = await authFetch(`/users/${USER_ID}/logs`, {
+
+        method: "POST",
+
+        body: JSON.stringify({
+            distance: document.getElementById("distance").value,
+            duration: document.getElementById("duration").value,
+            place: document.getElementById("place").value,
+            date: document.getElementById("date").value
+        })
+    });
+
+    const data = await response.json();
+
+    const messageBox = document.getElementById("messageBox");
+
+    if (!response.ok) {
+        messageBox.style.display = "block";
+        messageBox.innerText = data.detail || "Could not save workout";
+        return;
+    }
+
+    messageBox.style.display = "block";
+
+    messageBox.innerText = data.message;
+
+    document.getElementById("logForm").reset();
+
+    refreshDashboard();
+});
+
+function logout() {
+
+    localStorage.removeItem("token");
+
+    window.location.href = "/";
+}
+
+async function refreshDashboard() {
+
+    await fetchStats();
+
+    await fetchGoal();
+
+    await fetchLogs();
+}
+
+fetchQuote();
+refreshDashboard();
+
+</script>
+
+</body>
+</html>
