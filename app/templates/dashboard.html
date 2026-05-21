@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -257,10 +256,48 @@ async function authFetch(url, options = {}) {
 }
 
 function parseJwt(token) {
-    return JSON.parse(atob(token.split('.')[1]));
+    return JSON.parse(atob(token.split(".")[1]));
 }
 
 const USER_ID = parseJwt(token).sub;
+
+function getTodayISO() {
+    const today = new Date();
+
+    const year = today.getFullYear();
+
+    const month = String(today.getMonth() + 1).padStart(2, "0");
+
+    const day = String(today.getDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+}
+
+function setMaxDateToday() {
+    const dateInput = document.getElementById("date");
+
+    if (dateInput) {
+        dateInput.max = getTodayISO();
+    }
+}
+
+function formatDate(dateString) {
+    if (!dateString) return "-";
+
+    const cleanDate = dateString.split("T")[0];
+
+    const [year, month, day] = cleanDate.split("-");
+
+    if (!year || !month || !day) return dateString;
+
+    return `${day}-${month}-${year}`;
+}
+
+function isFutureDate(dateString) {
+    return dateString > getTodayISO();
+}
+
+setMaxDateToday();
 
 async function fetchQuote() {
 
@@ -277,82 +314,58 @@ async function fetchStats() {
 
     const stats = await response.json();
 
-    document.getElementById("totalRuns").innerText = stats.total_runs || 0;
+    document.getElementById("totalRuns").innerText =
+        stats.total_runs || 0;
 
     document.getElementById("totalDistance").innerText =
-        (stats.total_distance || 0).toFixed(2);
+        Number(stats.total_distance || 0).toFixed(2);
 
     document.getElementById("totalDuration").innerText =
-        (stats.total_duration || 0).toFixed(2);
+        Number(stats.total_duration || 0).toFixed(2);
 
     document.getElementById("avgPace").innerText =
-        (stats.avg_pace || 0).toFixed(2);
+        Number(stats.avg_pace || 0).toFixed(2);
 
     document.getElementById("consistency").innerText =
-        `${stats.consistency || 0}%`;
+        `${Number(stats.consistency || 0).toFixed(2)}%`;
 
     document.getElementById("maxPace").innerText =
-        (stats.max_pace || 0).toFixed(2);
+        Number(stats.max_pace || 0).toFixed(2);
 
     document.getElementById("maxDistance").innerText =
-        (stats.max_distance || 0).toFixed(2);
+        Number(stats.max_distance || 0).toFixed(2);
 
     document.getElementById("maxDuration").innerText =
-        (stats.max_duration || 0).toFixed(2);
+        Number(stats.max_duration || 0).toFixed(2);
 
     document.getElementById("startDate").innerText =
-        stats.start_date || "-";
+        formatDate(stats.start_date);
 
     document.getElementById("endDate").innerText =
-        stats.end_date || "-";
+        formatDate(stats.end_date);
 }
 
 async function fetchGoal() {
 
-    try {
+    const response = await authFetch(`/users/${USER_ID}/goal`);
 
-        const response = await fetch(`/users/${USER_ID}/goal`, {
-            headers: {
-                "Authorization": `Bearer ${token}`
-            }
-        });
+    const goal = await response.json();
 
-        const activeGoal =
-            document.getElementById("activeGoal");
+    const activeGoal = document.getElementById("activeGoal");
 
-        if (!response.ok) {
-
-            activeGoal.innerHTML =
-                "<p>No active goal.</p>";
-
-            return;
-        }
-
-        const goal = await response.json();
-
-        const distance =
-            goal.goaldistance ?? "-";
-
-        const duration =
-            goal.goalduration ?? "-";
-
-        activeGoal.innerHTML = `
-            <div class="goal-pill">
-                🎯 Distance: ${distance}
-                |
-                Duration: ${duration}
-            </div>
-        `;
-
-    } catch (err) {
-
-        console.error(err);
-
-        document.getElementById(
-            "activeGoal"
-        ).innerHTML = "<p>No active goal.</p>";
+    if (!goal.active) {
+        activeGoal.innerHTML = "<p>No Active Goal<br><br><br></p>";
+        return;
     }
+
+    activeGoal.innerHTML = `
+        <div class="goal-pill">
+            Distance: ${goal.goal_distance ?? "-"} |
+            Duration: ${goal.goal_duration ?? "-"}
+        </div>
+    `;
 }
+
 async function fetchLogs() {
 
     const response = await authFetch(`/users/${USER_ID}/logs`);
@@ -377,7 +390,7 @@ async function fetchLogs() {
         const row = document.createElement("tr");
 
         row.innerHTML = `
-            <td>${log.date}</td>
+            <td>${formatDate(log.date)}</td>
             <td>${log.place}</td>
             <td>${Number(log.distance).toFixed(2)}</td>
             <td>${Number(log.duration).toFixed(2)}</td>
@@ -415,7 +428,7 @@ async function deleteLog(logId) {
 
     if (!response.ok) return;
 
-    refreshDashboard();
+    await refreshDashboard();
 }
 
 async function editLog(logId) {
@@ -423,25 +436,35 @@ async function editLog(logId) {
     const distance = prompt("New distance:");
     const duration = prompt("New duration:");
     const place = prompt("New place:");
-    const date = prompt("New date (YYYY-MM-DD):");
+    const newDate = prompt("New date (YYYY-MM-DD):");
 
-    if (!distance || !duration || !place || !date) {
+    if (!distance || !duration || !place || !newDate) {
+        return;
+    }
+
+    if (isFutureDate(newDate)) {
+        alert("You cannot create or update logs for future dates.");
         return;
     }
 
     const response = await authFetch(`/users/${USER_ID}/logs/${logId}`, {
         method: "PATCH",
         body: JSON.stringify({
-            distance,
-            duration,
+            distance: Number(distance),
+            duration: Number(duration),
             place,
-            date
+            date: newDate
         })
     });
 
-    if (!response.ok) return;
+    const data = await response.json();
 
-    refreshDashboard();
+    if (!response.ok) {
+        alert(data.detail || "Could not update workout");
+        return;
+    }
+
+    await refreshDashboard();
 }
 
 document.getElementById("goalForm")
@@ -449,21 +472,25 @@ document.getElementById("goalForm")
 
     e.preventDefault();
 
-    await fetch(`/users/${USER_ID}/goal`, {
+    const response = await authFetch(`/users/${USER_ID}/goal`, {
 
         method: "POST",
-
-        headers: getAuthHeaders(),
 
         body: JSON.stringify({
 
             goalDistance:
-                document.getElementById("goalDistance").value || null,
+                document.getElementById("goalDistance").value
+                    ? Number(document.getElementById("goalDistance").value)
+                    : null,
 
             goalDuration:
-                document.getElementById("goalDuration").value || null
+                document.getElementById("goalDuration").value
+                    ? Number(document.getElementById("goalDuration").value)
+                    : null
         })
     });
+
+    if (!response.ok) return;
 
     document.getElementById("goalForm").reset();
 
@@ -475,21 +502,29 @@ document.getElementById("logForm")
 
     e.preventDefault();
 
+    const selectedDate = document.getElementById("date").value;
+
+    const messageBox = document.getElementById("messageBox");
+
+    if (isFutureDate(selectedDate)) {
+        messageBox.style.display = "block";
+        messageBox.innerText = "You cannot create logs for future dates.";
+        return;
+    }
+
     const response = await authFetch(`/users/${USER_ID}/logs`, {
 
         method: "POST",
 
         body: JSON.stringify({
-            distance: document.getElementById("distance").value,
-            duration: document.getElementById("duration").value,
+            distance: Number(document.getElementById("distance").value),
+            duration: Number(document.getElementById("duration").value),
             place: document.getElementById("place").value,
-            date: document.getElementById("date").value
+            date: selectedDate
         })
     });
 
     const data = await response.json();
-
-    const messageBox = document.getElementById("messageBox");
 
     if (!response.ok) {
         messageBox.style.display = "block";
@@ -503,7 +538,9 @@ document.getElementById("logForm")
 
     document.getElementById("logForm").reset();
 
-    refreshDashboard();
+    setMaxDateToday();
+
+    await refreshDashboard();
 });
 
 function logout() {
@@ -530,6 +567,7 @@ async function refreshDashboard() {
 }
 
 fetchQuote();
+
 refreshDashboard();
 
 </script>
