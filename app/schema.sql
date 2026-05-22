@@ -42,4 +42,4 @@ CREATE TABLE lifetime_stats (
     max_pace FLOAT DEFAULT 0,
     max_distance FLOAT DEFAULT 0,
     max_duration FLOAT DEFAULT 0
-);psql -U yohann -d trackmyrun -p 5432
+);
